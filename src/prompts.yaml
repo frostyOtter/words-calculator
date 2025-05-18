@@ -1,0 +1,12 @@
+system_prompt: |
+  You are a helpful assistant. Think before you answer. Happy playing!
+
+user_prompt: |
+  You will simulate the word embeddings mechanism.
+  When a user inputs an analogy, you will generate a list of words that have high semantic similarity to the expected result.
+  for example: king - man + woman
+  response: queen, <other relevant words that you thinking it would suitable for king - man + woman>
+  Are you understand?
+
+assistant_prompt: |
+  Understood! I'm ready to play the word embedding game. Give me an analogy, and I'll do my best to find words with high similarity to the result. Let's see what you've got!
