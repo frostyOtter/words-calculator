@@ -1,7 +1,7 @@
 import lancedb
 import numpy as np
 import os
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Callable
 from loguru import logger
 
 
@@ -24,7 +24,7 @@ class EmbeddingsDB:
     def connect(self) -> None:
         """Connect to the LanceDB database."""
         self.db = lancedb.connect(self.uri)
-        logger.info("Welcome to LanceDB!")
+        logger.info("Beep Boop, Welcome to LanceDB!")
 
     def open_table(self, table_name: str) -> Any:
         """Open an existing table.
@@ -68,6 +68,21 @@ class EmbeddingsDB:
 
         return self.db.create_table(table_name, data=data)
 
+    def retrieve_table_row_count(self, table_name: str) -> int:
+        """Retrieve the number of rows in the specified table.
+
+        Args:
+            table_name (str): Name of the table to retrieve information about
+
+        """
+        if not self.db:
+            self.connect()
+
+        if table_name not in self.db.table_names():
+            raise ValueError(f"Table '{table_name}' does not exist")
+
+        return len(self.db.open_table(table_name))
+
     def search(
         self, table_name: str, query_vector: np.ndarray, limit: int = 10
     ) -> List[Dict[str, Any]]:
@@ -92,7 +107,41 @@ class EmbeddingsDB:
 
         table = self.open_table(table_name)
         logger.info("Beep Boop, Searching...")
-        results = (
-            table.search(query_vector).distance_type("cosine").limit(limit).to_list()
-        )
-        return results
+        try:
+            results = (
+                table.search(query_vector)
+                .distance_type("cosine")
+                .limit(limit)
+                .to_list()
+            )
+            return results
+        except Exception as e:
+            logger.error(f"Beep Boop, Error: {e}")
+            return []
+
+    def add_new_data_to_table(
+        self, table_name: str, embeddings_model: Callable, data: List[str]
+    ) -> bool:
+        if not table_name.endswith("_embeddings"):
+            table_name = table_name + "_embeddings"
+
+        embeddings_data = embeddings_model.generate_embeddings(data)
+        data = [
+            {"text": text, "vector": vector}
+            for text, vector in zip(data, embeddings_data)
+        ]
+
+        # check if table exists
+        try:
+            if table_name not in self.db.table_names():
+                logger.warning(
+                    f"Table '{table_name}' does not exist. Creating table..."
+                )
+                self.create_table(table_name, data)
+            else:
+                table = self.open_table(table_name)
+                table.add(data)
+        except Exception as e:
+            logger.error(f"Error adding data to table: {e}")
+            return False
+        return True

@@ -115,6 +115,7 @@ def get_llm_model() -> Callable:
 
 
 def get_similar_words_from_db(
+    embeddings_db: EmbeddingsDB,
     embedding_service: str,
     target_vector: np.ndarray,
     words: List[str],
@@ -122,28 +123,24 @@ def get_similar_words_from_db(
     """Get similar words from LanceDB for API-based embedding services."""
     try:
 
-        # Initialize LanceDB on first call
-        db = EmbeddingsDB()
-        db.connect()
-
         # Get table name based on embedding service
         table_name = f"{embedding_service.lower()}_embeddings"
 
         # Check if table exists
-        if table_name not in db.db.table_names():
+        if table_name not in embeddings_db.db.table_names():
             st.error(
                 f"Beep Boop, table '{table_name}' does not exist. Please ingest data first."
             )
             return None
 
         # Search in LanceDB
-        search_results = db.search(table_name, target_vector, limit=5)
+        search_results = embeddings_db.search(table_name, target_vector, limit=5)
 
         # Format results
         similar_words = [
             (result["text"], float(result["_distance"]))
             for result in search_results
-            if result not in words
+            if result["text"] not in words
         ]
         return similar_words
 
@@ -168,6 +165,31 @@ def display_similar_words(similar_words: List[Tuple[str, float]]) -> None:
         st.write(f"- {word} (Similarity: {similarity:.2f})")
 
 
+def add_new_data_to_db(
+    table_row_count: int,
+    embeddings_db: EmbeddingsDB,
+    embeddings_model: Callable,
+    embeddings_service: str,
+    num_words: int,
+) -> bool:
+
+    with open(os.path.join("data", "20k-english-words.txt"), "r") as f:
+        data = f.read().splitlines()
+    st.write("Ingesting new words into database...")
+    if len(data) == table_row_count:
+        st.warning("Beep Boop, Database already contains all words.")
+        return
+    elif len(data) > table_row_count + num_words:
+        data = data[table_row_count : table_row_count + num_words]
+    else:
+        data = data[table_row_count : len(data)]
+
+    result = embeddings_db.add_new_data_to_table(
+        embeddings_service.lower() + "_embeddings", embeddings_model, data
+    )
+    return result
+
+
 def main() -> None:
     st.title("Word Analogy Calculator")
 
@@ -178,9 +200,47 @@ def main() -> None:
     embeddings_model = get_embedding_model()
     if embeddings_model is None:
         return
+    embedding_service = st.session_state.get("embedding_service", "GloVe")
+    if embedding_service != "GloVe":
+        # Initialize LanceDB on first call
+        embeddings_db = EmbeddingsDB()
+        embeddings_db.connect()
+        table_row_count = embeddings_db.retrieve_table_row_count(
+            embedding_service.lower() + "_embeddings"
+        )
+        if table_row_count == 0:
+            st.warning(
+                "Beep Boop, No words found in the database. Please ingest data first."
+            )
+        else:
+            st.write(f"Beep Boop, Found {table_row_count} words in the database.")
 
-    with st.form("Enter words and operations:", enter_to_submit=True):
-        analogy_input = st.text_input(label="", value="")
+        with st.expander("Ingest more words into database"):
+            # Display a form, user can input number of words to embeddings into database.
+            with st.form("Ingest words into database:"):
+                num_words = st.number_input(
+                    label="Number of words to ingest", min_value=1, max_value=1000
+                )
+                submit_button = st.form_submit_button("Submit")
+                if submit_button:
+                    st.write(
+                        f"Beep Boop, Ingesting {num_words} words into the database, please wait...."
+                    )
+                    result = add_new_data_to_db(
+                        table_row_count,
+                        embeddings_db,
+                        embeddings_model,
+                        embedding_service,
+                        num_words,
+                    )
+                    if result:
+                        st.success("Beep Boop, Ingestion successful.")
+                        st.rerun()
+                    else:
+                        st.error("Beep Boop, Ingestion failed.")
+
+    with st.form("Input words and operations", enter_to_submit=True):
+        analogy_input = st.text_input(label="Input words and operations", value="")
         submit_button = st.form_submit_button("Submit")
 
     if submit_button and analogy_input.strip():
@@ -194,8 +254,6 @@ def main() -> None:
             embeddings_model, words, operations
         )
 
-        embedding_service = st.session_state.get("embedding_service", "GloVe")
-
         if embedding_service == "GloVe":
             similar_words = embeddings_model.find_closest_word(
                 target_word_embedding, words
@@ -208,7 +266,7 @@ def main() -> None:
             st.error("Beep Boop, SBERT embeddings are not implemented yet.")
         else:  # Cohere, OpenAI, or Azure OpenAI
             similar_words = get_similar_words_from_db(
-                embedding_service, target_word_embedding, words
+                embeddings_db, embedding_service, target_word_embedding, words
             )
             if similar_words:
                 display_similar_words(similar_words)
