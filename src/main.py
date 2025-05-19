@@ -2,11 +2,12 @@ import os
 import streamlit as st
 from gensim.models.keyedvectors import KeyedVectors
 import numpy as np
-from sklearn.metrics.pairwise import cosine_similarity
+
 from typing import Optional, Tuple, List, Callable
 import yaml
 from models import SimilarWords
 from loguru import logger
+from embeddings_db import EmbeddingsDB
 
 
 def preprocess_analogy_string(
@@ -37,67 +38,33 @@ def preprocess_analogy_string(
 
 
 def perform_word_analogy(
-    model: KeyedVectors, analogy_string: str
-) -> Tuple[Optional[np.ndarray], Optional[List[str]]]:
+    embeddings_model: Callable, words: List[str], operations: List[str]
+) -> Tuple[Optional[np.ndarray], Optional[List[np.ndarray]]]:
     """Performs the word analogy calculation with support for multiple operations."""
-    # Preprocess the analogy string
-    words, operations = preprocess_analogy_string(analogy_string)
-    missing_words = [word for word in words if word not in model]
-    # Check if all words are in the vocabulary
-
-    if missing_words:
-        st.warning(
-            f"The following word(s) are not in the vocabulary: {', '.join(missing_words)}"
-        )
-        return None, None
 
     try:
         # Start with the first word's vector
-        result_vector = model[words[0]]
-
+        words_embeddings = embeddings_model.generate_embeddings(words)
+        target_word_embedding = words_embeddings[0]
         # Apply operations in sequence
         for i, op in enumerate(operations):
             if op == "-":
-                result_vector = result_vector - model[words[i + 1]]
+                target_word_embedding = target_word_embedding - words_embeddings[i + 1]
             else:  # op == '+'
-                result_vector = result_vector + model[words[i + 1]]
+                target_word_embedding = target_word_embedding + words_embeddings[i + 1]
 
-        return result_vector, words
-    except KeyError as e:
-        st.warning(f"Error accessing word vector: {e}")
+        return target_word_embedding, words_embeddings
+    except Exception as e:
+        st.warning(f"Error performing word analogy: {e}")
         return None, None
-
-
-def find_closest_word(
-    model: KeyedVectors, vector: np.ndarray, exclude_words: List[str]
-) -> List[Tuple[str, float]]:
-    """Finds the top 5 closest words in the vocabulary to the given vector."""
-    if vector is None:
-        return []
-
-    similarities = cosine_similarity(vector.reshape(1, -1), model.vectors)[0]
-    sorted_indices = np.argsort(similarities)[::-1]
-
-    results: List[Tuple[str, float]] = []
-    for index in sorted_indices:
-        closest_word = model.index_to_key[index]
-        if closest_word not in exclude_words:
-            similarity = similarities[index]
-            results.append((closest_word, similarity))
-            if len(results) >= 5:
-                break
-    return results
 
 
 def get_embedding_model() -> Callable:
     """Returns the selected embedding model based on user choice."""
-    from embeddings_model import (
-        glove_embedding,
-        cohere_embedding,
-        openai_embedding,
-        azure_openai_embedding,
-        sbert_embedding,
-    )
+    from dotenv import load_dotenv
+
+    load_dotenv(override=True)
+    import os
 
     embedding_service = st.selectbox(
         "Select Embedding Service",
@@ -108,15 +75,29 @@ def get_embedding_model() -> Callable:
 
     try:
         if embedding_service == "GloVe":
-            return glove_embedding()
+            from glove_embeddings import GloveEmbeddings
+
+            return GloveEmbeddings()
         elif embedding_service == "Cohere":
-            return cohere_embedding()
+            from cohere_embeddings import CohereEmbeddings
+
+            return CohereEmbeddings(api_key=os.getenv("COHERE_API_KEY"))
         elif embedding_service == "OpenAI":
-            return openai_embedding()
+            from openai_embeddings import OpenAIEmbeddings
+
+            return OpenAIEmbeddings(api_key=os.getenv("OPENAI_API_KEY"))
         elif embedding_service == "Azure OpenAI":
-            return azure_openai_embedding()
+            from azure_openai_embeddings import AzureOpenAIEmbeddings
+
+            return AzureOpenAIEmbeddings(
+                api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+                endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+                model_name=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+            )
         elif embedding_service == "SBERT":
-            return sbert_embedding()
+            from sbert_embeddings import SBertEmbeddings
+
+            return SBertEmbeddings()
     except Exception as e:
         st.error(f"Error loading {embedding_service} model: {str(e)}")
         return None
@@ -133,86 +114,56 @@ def get_llm_model() -> Callable:
     return GeminiServiceProvider(api_key=os.getenv("GEMINI_API_KEY"))
 
 
-def get_glove_similar_words(
-    embeddings_model: KeyedVectors, analogy_input: str
-) -> List[Tuple[str, float]]:
-    """Calculates and displays similar words based on the analogy input."""
-    result_vector, input_words = perform_word_analogy(embeddings_model, analogy_input)
-    if result_vector is not None:
-        similar_words = find_closest_word(embeddings_model, result_vector, input_words)
-    else:
-        return None
-    return similar_words
+def get_similar_words_from_db(
+    embedding_service: str,
+    target_vector: np.ndarray,
+    words: List[str],
+) -> Optional[List[Tuple[str, float]]]:
+    """Get similar words from LanceDB for API-based embedding services."""
+    try:
 
+        # Initialize LanceDB on first call
+        db = EmbeddingsDB()
+        db.connect()
 
-def get_embeddings_from_api_service(
-    words_input: List[str], similar_words: List[str], embeddings_model: Callable
-) -> np.ndarray:
-    # Embeddings analogy input and similar words
-    embeddings = embeddings_model(words_input + similar_words)
-    # Slide the embeddings results that match with the len of words and similar_words
-    words_embeddings = embeddings[: len(words_input)]
-    similar_words_embeddings = embeddings[len(words_input) :]
-    if words_embeddings is None or similar_words_embeddings is None:
+        # Get table name based on embedding service
+        table_name = f"{embedding_service.lower()}_embeddings"
+
+        # Check if table exists
+        if table_name not in db.db.table_names():
+            st.error(
+                f"Beep Boop, table '{table_name}' does not exist. Please ingest data first."
+            )
+            return None
+
+        # Search in LanceDB
+        search_results = db.search(table_name, target_vector, limit=5)
+
+        # Format results
+        similar_words = [
+            (result["text"], float(result["_distance"]))
+            for result in search_results
+            if result not in words
+        ]
+        return similar_words
+
+    except Exception as e:
+        logger.error(f"Error getting similar words from DB: {e}")
+        st.error(f"Error getting similar words: {str(e)}")
         return None
-    return words_embeddings, similar_words_embeddings
 
 
 def get_llm_similar_words(
     llm_model: Callable, analogy_input: str, embeddings_model
 ) -> List[Tuple[str, float]]:
-    """Calculates and displays similar words based on the analogy input."""
-    with open(os.path.join("src", "prompts.yaml"), "r") as f:
-        prompts = yaml.safe_load(f)
-    system_prompt = prompts["system_prompt"]
-    user_prompt = prompts["user_prompt"]
-    assistant_prompt = prompts["assistant_prompt"]
-    prompts = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_prompt},
-        {"role": "ai", "content": assistant_prompt},
-        {"role": "user", "content": analogy_input},
-    ]
-
-    similar_words = llm_model.generate_response(prompts, SimilarWords)
-    similar_words = similar_words.get("similar_words")
-    logger.info(f"Similar words: {similar_words}")
-    words, operations = preprocess_analogy_string(analogy_input)
-    words_embeddings, similar_words_embeddings = get_embeddings_from_api_service(
-        words, similar_words, embeddings_model
-    )
-
-    if words_embeddings is None or similar_words_embeddings is None:
-        return None
-
-    # We are now have words, similar words from LLM, and embeddings
-    # Calculate the operations between the words and similar words
-    target_word_embeddings = words_embeddings[0]
-    for i, op in enumerate(operations):
-        if op == "-":
-            target_word_embeddings = target_word_embeddings - words_embeddings[i + 1]
-        else:
-            target_word_embeddings = target_word_embeddings + words_embeddings[i + 1]
-
-    similarities = [
-        cosine_similarity(
-            target_word_embeddings.reshape(1, -1),
-            similar_word_embeddings.reshape(1, -1),
-        )
-        for similar_word_embeddings in similar_words_embeddings
-    ]
-    # Return List of tuples (word, similarity), also change from numpy.ndarray to float
-    similar_words = [
-        (word, float(similarity.item()))
-        for word, similarity in zip(similar_words, similarities)
-    ]
-    similar_words = sorted(similar_words, key=lambda x: x[1], reverse=True)
-    return similar_words
+    pass
 
 
 def display_similar_words(similar_words: List[Tuple[str, float]]) -> None:
     """Displays the similar words in a table."""
     st.write("Similar words:")
+    # Sort similar words by similarity
+    similar_words.sort(key=lambda x: x[1], reverse=True)
     for word, similarity in similar_words:
         st.write(f"- {word} (Similarity: {similarity:.2f})")
 
@@ -228,27 +179,36 @@ def main() -> None:
     if embeddings_model is None:
         return
 
-    llm_model = get_llm_model()
-    if llm_model is None:
-        return
+    with st.form("Enter words and operations:", enter_to_submit=True):
+        analogy_input = st.text_input(label="", value="")
+        submit_button = st.form_submit_button("Submit")
 
-    analogy_input = st.text_input(
-        "Enter words and operations:", "", key="analogy_input"
-    )
+    if submit_button and analogy_input.strip():
+        # Preprocess user input message into words and operations
+        words, operations = preprocess_analogy_string(analogy_input)
+        if words is None or operations is None:
+            return
 
-    if analogy_input:
-        # Get the selected embedding service name
+        # Perform word analogy calculation
+        target_word_embedding, _ = perform_word_analogy(
+            embeddings_model, words, operations
+        )
+
         embedding_service = st.session_state.get("embedding_service", "GloVe")
 
         if embedding_service == "GloVe":
-            similar_words = get_glove_similar_words(embeddings_model, analogy_input)
+            similar_words = embeddings_model.find_closest_word(
+                target_word_embedding, words
+            )
             if similar_words:
                 display_similar_words(similar_words)
             else:
-                st.warning("Could not find any suitable answers in the vocabulary.")
-        else:
-            similar_words = get_llm_similar_words(
-                llm_model, analogy_input, embeddings_model
+                st.warning("Beep Boop, GloVe can't find any similar words.")
+        elif embedding_service == "SBERT":
+            st.error("Beep Boop, SBERT embeddings are not implemented yet.")
+        else:  # Cohere, OpenAI, or Azure OpenAI
+            similar_words = get_similar_words_from_db(
+                embedding_service, target_word_embedding, words
             )
             if similar_words:
                 display_similar_words(similar_words)
