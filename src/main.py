@@ -1,11 +1,7 @@
 import os
 import streamlit as st
-from gensim.models.keyedvectors import KeyedVectors
 import numpy as np
-
 from typing import Optional, Tuple, List, Callable
-import yaml
-from models import SimilarWords
 from loguru import logger
 from embeddings_db import EmbeddingsDB
 
@@ -334,7 +330,13 @@ def main() -> None:
                     else:
                         st.warning("Beep Boop, GloVe can't find any similar words.")
                 elif embedding_service == "SBERT":
-                    st.error("Beep Boop, SBERT embeddings are not implemented yet.")
+                    similar_words = get_similar_words_from_db(
+                        embeddings_db, embedding_service, target_word_embedding, words
+                    )
+                    if similar_words:
+                        display_similar_words(similar_words)
+                    else:
+                        st.warning("Beep Boop, SBERT can't find any similar words.")
                 else:  # Cohere, OpenAI, or Azure OpenAI
                     similar_words = get_similar_words_from_db(
                         embeddings_db, embedding_service, target_word_embedding, words
