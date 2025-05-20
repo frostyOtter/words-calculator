@@ -2,6 +2,7 @@ import numpy as np
 from typing import List
 from loguru import logger
 from functools import lru_cache
+from tqdm import tqdm
 
 
 class SBertEmbeddings:
@@ -56,7 +57,9 @@ class SBertEmbeddings:
             logger.error(f"Error generating embedding: {e}")
             raise
 
-    def generate_embeddings(self, texts: List[str]) -> np.ndarray:
+    def generate_embeddings(
+        self, texts: List[str], batch_size: int = 100
+    ) -> np.ndarray:
         """
         Generate embeddings for a list of texts.
 
@@ -66,11 +69,18 @@ class SBertEmbeddings:
         Returns:
             numpy array containing all embeddings
         """
+        all_embeddings = []
+
         try:
-            # SBERT can handle multiple texts efficiently
-            embeddings = self.model.encode(texts, convert_to_numpy=True)
+            for i in tqdm(
+                range(0, len(texts), batch_size), desc="Generating embeddings"
+            ):
+                batch = texts[i : i + batch_size]
+                embeddings = self.model.encode(batch, convert_to_numpy=True)
+                all_embeddings.extend(embeddings)
+
             logger.debug(f"Successfully embedded {len(texts)} texts")
-            return embeddings
+            return np.array(all_embeddings)
 
         except Exception as e:
             logger.error(f"Error generating embeddings: {e}")
