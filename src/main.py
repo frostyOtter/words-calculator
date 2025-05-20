@@ -68,8 +68,8 @@ def get_embedding_model() -> Callable:
 
     embedding_service = st.selectbox(
         "Select Embedding Service",
-        ["GloVe", "Cohere", "OpenAI", "Azure OpenAI", "SBERT"],
-        index=0,
+        ["GloVe", "Cohere", "OpenAI", "Azure_OpenAI", "SBERT"],
+        index=1,
         key="embedding_service",
     )
 
@@ -81,23 +81,46 @@ def get_embedding_model() -> Callable:
         elif embedding_service == "Cohere":
             from cohere_embeddings import CohereEmbeddings
 
-            return CohereEmbeddings(api_key=os.getenv("COHERE_API_KEY"))
+            api_key = os.getenv("COHERE_API_KEY")
+            if api_key is None:
+                st.error("Beep Boop, Cohere API key is not set.")
+                return None
+            return CohereEmbeddings(api_key=api_key)
         elif embedding_service == "OpenAI":
             from openai_embeddings import OpenAIEmbeddings
 
-            return OpenAIEmbeddings(api_key=os.getenv("OPENAI_API_KEY"))
-        elif embedding_service == "Azure OpenAI":
+            model_name = os.getenv("OPENAI_MODEL")
+            api_key = os.getenv("OPENAI_API_KEY")
+            if any(model_name, api_key) is None:
+                st.error("Beep Boop, OpenAI model or API key is not set.")
+                return None
+            return OpenAIEmbeddings(
+                api_key=os.getenv("OPENAI_API_KEY"), model_name=model_name
+            )
+        elif embedding_service == "Azure_OpenAI":
             from azure_openai_embeddings import AzureOpenAIEmbeddings
 
+            api_key = os.getenv("AZURE_OPENAI_API_KEY")
+            endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+            model_name = os.getenv("AZURE_OPENAI_DEPLOYMENT")
+            if any(api_key, endpoint, model_name) is None:
+                st.error("Beep Boop, Azure OpenAI model or API key is not set.")
+                return None
             return AzureOpenAIEmbeddings(
-                api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-                endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-                model_name=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+                api_key=api_key,
+                endpoint=endpoint,
+                model_name=model_name,
             )
         elif embedding_service == "SBERT":
             from sbert_embeddings import SBertEmbeddings
 
-            return SBertEmbeddings()
+            model_name = st.text_input(
+                label="Enter model name", value="all-MiniLM-L6-v2"
+            )
+            if model_name is None:
+                st.error("Beep Boop, model name is not set.")
+                return None
+            return SBertEmbeddings(model_name=model_name)
     except Exception as e:
         st.error(f"Error loading {embedding_service} model: {str(e)}")
         return None
@@ -187,6 +210,8 @@ def add_new_data_to_db(
     result = embeddings_db.add_new_data_to_table(
         embeddings_service.lower() + "_embeddings", embeddings_model, data
     )
+    if result:
+        logger.debug(f"Beep Boop, ingestion successful.")
     return result
 
 
@@ -205,16 +230,25 @@ def main() -> None:
         # Initialize LanceDB on first call
         embeddings_db = EmbeddingsDB()
         embeddings_db.connect()
-        table_row_count = embeddings_db.retrieve_table_row_count(
+        if (
             embedding_service.lower() + "_embeddings"
-        )
-        if table_row_count == 0:
+            not in embeddings_db.db.table_names()
+        ):
             st.warning(
-                "Beep Boop, No words found in the database. Please ingest data first."
+                f"Beep Boop, table '{embedding_service.lower()}_embeddings' does not exist. Please ingest data first."
             )
+            table_row_count = 0
         else:
-            st.write(f"Beep Boop, Found {table_row_count} words in the database.")
-
+            table_row_count = embeddings_db.retrieve_table_row_count(
+                embedding_service.lower() + "_embeddings"
+            )
+            if table_row_count == 0:
+                st.warning(
+                    "Beep Boop, No words found in the database. Please ingest data first."
+                )
+            else:
+                st.write(f"Beep Boop, Found {table_row_count} words in the database.")
+        add_data_result = False
         with st.expander("Ingest more words into database"):
             # Display a form, user can input number of words to embeddings into database.
             with st.form("Ingest words into database:"):
@@ -226,18 +260,17 @@ def main() -> None:
                     st.write(
                         f"Beep Boop, Ingesting {num_words} words into the database, please wait...."
                     )
-                    result = add_new_data_to_db(
+                    add_data_result = add_new_data_to_db(
                         table_row_count,
                         embeddings_db,
                         embeddings_model,
                         embedding_service,
                         num_words,
                     )
-                    if result:
-                        st.success("Beep Boop, Ingestion successful.")
-                        st.rerun()
-                    else:
-                        st.error("Beep Boop, Ingestion failed.")
+        if add_data_result:
+            st.success("Beep Boop, Ingestion successful.")
+            embeddings_db = None
+            st.rerun()
 
     with st.form("Input words and operations", enter_to_submit=True):
         analogy_input = st.text_input(label="Input words and operations", value="")

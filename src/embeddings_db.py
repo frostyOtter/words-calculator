@@ -16,6 +16,18 @@ class EmbeddingsDB:
         self.db = None
         self._ensure_db_directory()
 
+    # Decorator to ensure the table name ends with '_embeddings'
+    @staticmethod
+    def ensure_table_name(func):
+        """Decorator to ensure the first argument 'table_name' ends with '_embeddings'."""
+
+        def wrapper(self, table_name, *args, **kwargs):
+            if not table_name.endswith("_embeddings"):
+                table_name = table_name + "_embeddings"
+            return func(self, table_name, *args, **kwargs)
+
+        return wrapper
+
     def _ensure_db_directory(self) -> None:
         """Ensure the database directory exists."""
         if not os.path.exists(self.uri):
@@ -26,6 +38,7 @@ class EmbeddingsDB:
         self.db = lancedb.connect(self.uri)
         logger.info("Beep Boop, Welcome to LanceDB!")
 
+    @ensure_table_name
     def open_table(self, table_name: str) -> Any:
         """Open an existing table.
 
@@ -46,6 +59,7 @@ class EmbeddingsDB:
 
         return self.db.open_table(table_name)
 
+    @ensure_table_name
     def create_table(self, table_name: str, data: List[Dict[str, Any]]) -> Any:
         """Create a new table with the given data.
 
@@ -68,6 +82,7 @@ class EmbeddingsDB:
 
         return self.db.create_table(table_name, data=data)
 
+    @ensure_table_name
     def retrieve_table_row_count(self, table_name: str) -> int:
         """Retrieve the number of rows in the specified table.
 
@@ -83,6 +98,7 @@ class EmbeddingsDB:
 
         return len(self.db.open_table(table_name))
 
+    @ensure_table_name
     def search(
         self, table_name: str, query_vector: np.ndarray, limit: int = 10
     ) -> List[Dict[str, Any]]:
@@ -119,18 +135,19 @@ class EmbeddingsDB:
             logger.error(f"Beep Boop, Error: {e}")
             return []
 
+    @ensure_table_name
     def add_new_data_to_table(
         self, table_name: str, embeddings_model: Callable, data: List[str]
     ) -> bool:
-        if not table_name.endswith("_embeddings"):
-            table_name = table_name + "_embeddings"
 
         embeddings_data = embeddings_model.generate_embeddings(data)
+        logger.debug(f"Beep Boop, Generated: {len(embeddings_data)} embeddings")
         data = [
             {"text": text, "vector": vector}
             for text, vector in zip(data, embeddings_data)
         ]
 
+        logger.debug(f"Beep Boop, Adding data to table: {table_name}")
         # check if table exists
         try:
             if table_name not in self.db.table_names():

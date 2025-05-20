@@ -30,6 +30,7 @@ class AzureOpenAIEmbeddings:
         self.api_key = api_key
         self.endpoint = endpoint
         self.api_version = api_version
+        logger.debug(f"Model name: {self.model_name}")
 
         try:
             self.client = AzureOpenAI(
