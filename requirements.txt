@@ -1,7 +1,6 @@
-gensim==4.3.3
 sentence-transformers==4.1.0
+gensim==4.3.3
 streamlit==1.45.1
-scikit-learn==1.6.1
 openai==1.79.0
 cohere==5.15.0
 lancedb==0.22.0

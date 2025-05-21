@@ -3,7 +3,7 @@ from typing import List, Tuple
 from loguru import logger
 from gensim.models.keyedvectors import KeyedVectors
 from functools import lru_cache
-from sklearn.metrics.pairwise import cosine_similarity
+from sentence_transformers.util import cos_sim
 
 
 class GloveEmbeddings:
@@ -92,7 +92,8 @@ class GloveEmbeddings:
         self, vector: np.ndarray, exclude_words: List[str]
     ) -> List[Tuple[str, float]]:
         """Finds the top 5 closest words in the vocabulary to the given vector."""
-        similarities = cosine_similarity(vector.reshape(1, -1), self.model.vectors)[0]
+
+        similarities = cos_sim(vector, self.model.vectors).cpu().numpy()[0]
         sorted_indices = np.argsort(similarities)[::-1]
 
         results: List[Tuple[str, float]] = []
