@@ -23,4 +23,5 @@ EXPOSE 8501
 ENV PYTHONPATH=/app
 
 # Run the application
-CMD ["streamlit", "run", "src/main.py"]
+# Use Ploomber cloud port recommendation
+CMD ["streamlit", "run", "src/main.py", "--server.port", "80"]
