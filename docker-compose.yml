@@ -1,0 +1,11 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: dockerfile
+    ports:
+      - "8501:8501"
+    # volumes:
+    #   - ./src:/app/src
+    #   - ./data:/app/data
+    restart: unless-stopped 

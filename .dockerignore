@@ -1,0 +1,59 @@
+# Version control
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+ENV/
+.env
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+*.log
+*.sqlite3
+.coverage
+htmlcov/
+
+# Large data files
+data/embeddings/
+data/lancedb/
+*.bin
+*.npy
+*.npz
+*.h5
+*.hdf5
+*.pkl
+*.pickle
