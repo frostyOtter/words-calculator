@@ -1,5 +1,5 @@
 import numpy as np
-from typing import List, Tuple
+from typing import List, Tuple, Protocol
 from loguru import logger
 from gensim.models.keyedvectors import KeyedVectors
 from functools import lru_cache
@@ -10,7 +10,7 @@ class GloveEmbeddings:
     def __init__(
         self,
         model_name: str = "glove-wiki-gigaword-50",
-    ):
+    ) -> None:
         """
         Initialize the GloVe embeddings model.
 

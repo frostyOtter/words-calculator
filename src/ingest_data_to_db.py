@@ -9,7 +9,7 @@ if __name__ == "__main__":
 
     data_path = sys.argv[1]
 
-    from embeddings_db import EmbeddingsDB
+    from lance_embeddings_db import EmbeddingsDB
     from cohere_embeddings import CohereEmbeddings
 
     db = EmbeddingsDB()
